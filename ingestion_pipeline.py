@@ -1,7 +1,7 @@
 import os
 from langchain_community.document_loaders import TextLoader, DirectoryLoader
 from langchain_text_splitters import CharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import AzureOpenAIEmbeddings
 from langchain_chroma import Chroma
 from dotenv import load_dotenv
 
@@ -75,13 +75,35 @@ def split_documents(documents, chunk_size=800, chunk_overlap=0):
     return chunks
 
 
+def create_embedding_model():
+    """Create the Azure OpenAI embedding client from environment settings."""
+    required_settings = {
+        "AZURE_OPENAI_ENDPOINT": os.getenv("AZURE_OPENAI_ENDPOINT"),
+        "AZURE_OPENAI_API_KEY": os.getenv("AZURE_OPENAI_API_KEY"),
+        "AZURE_OPENAI_API_VERSION": os.getenv("AZURE_OPENAI_API_VERSION"),
+        "AZURE_OPENAI_EMBEDDING_DEPLOYMENT": os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
+    }
+    missing_settings = [name for name, value in required_settings.items() if not value]
+    if missing_settings:
+        raise RuntimeError(
+            "Missing Azure OpenAI settings in .env: " + ", ".join(missing_settings)
+        )
+
+    return AzureOpenAIEmbeddings(
+        azure_endpoint=required_settings["AZURE_OPENAI_ENDPOINT"],
+        api_key=required_settings["AZURE_OPENAI_API_KEY"],
+        api_version=required_settings["AZURE_OPENAI_API_VERSION"],
+        azure_deployment=required_settings["AZURE_OPENAI_EMBEDDING_DEPLOYMENT"],
+        chunk_size=16,  # réduit le nombre de textes envoyés par batch
+        max_retries=5,  # réessaie automatiquement en cas d'erreur
+  )
 
 
 def create_vector_store(chunks, persist_directory="db/chroma_db"):
     """Create and persist ChromaDB vector store"""
     print("Creating embeddings and storing in ChromaDB...")
-        
-    embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
+
+    embedding_model = create_embedding_model()
     
     # Create ChromaDB vector store
 
@@ -118,7 +140,7 @@ def main():
     if os.path.exists(persistent_directory):
         print("✅ Vector store already exists. No need to re-process documents.")
         
-        embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
+        embedding_model = create_embedding_model()
         vectorstore = Chroma(
             persist_directory=persistent_directory,
             embedding_function=embedding_model, 
